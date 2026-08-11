@@ -1,4 +1,4 @@
-# desafio-ingestao-empresas# 🚀 Desafio Ingestão no Limite: Pipeline de Dados Otimizado
+🚀 Desafio Ingestão no Limite: Pipeline de Dados Otimizado
 
 Este repositório contém a minha solução para o desafio [Ingestão no Limite](https://github.com/mpraes/ingestao_no_limite), uma competição de Engenharia de Dados focada em **eficiência extrema, código performático e FinOps**.
 
