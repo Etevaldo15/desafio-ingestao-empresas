@@ -1,0 +1,36 @@
+# Python e Ambientes Virtuais
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.installed.cfg
+
+# Variáveis de ambiente locais (NUNCA suba senhas)
+.env
+
+# Configurações de IDE (VS Code, PyCharm)
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arquivos de Dados e Logs Locais (MUITO IMPORTANTE)
+# Impede que você suba os ZIPs de teste por engano
+*.zip
+*.csv
+*.EMPRECSV
+data/
+logs/
+*.log
+/tmp/
+
+# Arquivos de sistema (Mac/Windows)
+.DS_Store
+Thumbs.db
