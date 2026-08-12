@@ -1,7 +1,6 @@
 import duckdb
 import os
 import zipfile
-import glob
 import tempfile
 import shutil
 import sys
@@ -10,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def main():
-    logging.info("Iniciando pipeline de ingestão com DuckDB (Modo Competição)...")
+    logging.info(" Iniciando pipeline de ingestão com DuckDB (Modo Competição)...")
 
     PARTICIPANTE = os.getenv('PARTICIPANTE', 'etevaldo15')
     PG_TABLE = os.getenv('PG_TABLE', f"{PARTICIPANTE}_empresas")
@@ -31,11 +30,10 @@ def main():
         con.execute("LOAD postgres;")
 
         conn_string = f"dbname={PG_DB} user={PG_USER} password={PG_PASSWORD} host={PG_HOST} port={PG_PORT}"
-        logging.info(f"Conectando ao Postgres em {PG_HOST}...")
+        logging.info(f" Conectando ao Postgres em {PG_HOST}...")
         con.execute(f"ATTACH '{conn_string}' AS pg (TYPE POSTGRES);")
 
-        logging.info(f"Criando tabela UNLOGGED public.{PG_TABLE}...")
-        
+        logging.info(f" Criando tabela UNLOGGED public.{PG_TABLE}...")
         con.execute(f"DROP TABLE IF EXISTS pg.public.{PG_TABLE};")
         
         con.execute(f"""
@@ -57,52 +55,56 @@ def main():
         """)
 
         data_dir = '/data/'
-        zip_files = sorted(glob.glob(os.path.join(data_dir, '*.zip')))
+        
+        if os.path.exists(data_dir):
+            all_files = os.listdir(data_dir)
+            logging.info(f" Arquivos encontrados em {data_dir}: {all_files}")
+        else:
+            logging.error(f" O diretório {data_dir} não existe!")
+            sys.exit(1)
+
+        zip_files = sorted([
+            os.path.join(data_dir, f) 
+            for f in all_files 
+            if f.lower().endswith('.zip')
+        ])
         
         if not zip_files:
-            logging.warning(f"Nenhum arquivo .zip encontrado em {data_dir}")
-            return
+            logging.error(f" Nenhum arquivo .zip encontrado em {data_dir}. Abortando para evitar tabela vazia.")
+            sys.exit(1) 
 
         temp_dir = tempfile.mkdtemp()
-        logging.info(f"Pasta temporária criada em: {temp_dir}")
+        logging.info(f" Pasta temporária criada em: {temp_dir}")
 
         for zip_path in zip_files:
-            logging.info(f"Processando arquivo: {os.path.basename(zip_path)}...")
+            logging.info(f" Processando arquivo: {os.path.basename(zip_path)}...")
             
             try:
                 with zipfile.ZipFile(zip_path, 'r') as zf:
-                    csv_files = [f for f in zf.namelist() if f.endswith('.EMPRECSV')]
-                    if not csv_files: continue
+                    csv_files = [f for f in zf.namelist() if f.upper().endswith('.EMPRECSV')]
+                    if not csv_files: 
+                        logging.warning(f" Nenhum .EMPRECSV dentro de {zip_path}. Arquivos internos: {zf.namelist()}")
+                        continue
+                        
                     csv_name = csv_files[0]
-                    
                     extracted_path = zf.extract(csv_name, path=temp_dir)
                     
-                    # Query com Saneamento de Encoding para garantir DQ-10
                     insert_query = f"""
                     INSERT INTO pg.public.{PG_TABLE}
                     SELECT 
                         LPAD(CAST(column00 AS VARCHAR), 8, '0') AS cnpj_basico,
-                        
-                        -- DQ-02 e DQ-10: UPPER, TRIM e remoção de caracteres inválidos (U+FFFD)
                         UPPER(TRIM(regexp_replace(column01, '', '', 'g'))) AS razao_social,
-                        
                         LPAD(CAST(column02 AS VARCHAR), 4, '0') AS natureza_juridica,
                         CAST(column03 AS VARCHAR) AS qualificacao_responsavel,
-                        
-                        -- Capital: Tratamento robusto para evitar erros de cast
                         CAST(REPLACE(CAST(column04 AS VARCHAR), ',', '.') AS DOUBLE) AS capital_social,
-                        
                         CASE WHEN column05 IS NULL OR TRIM(CAST(column05 AS VARCHAR)) = '' THEN '00' ELSE CAST(column05 AS VARCHAR) END AS porte_codigo,
-                        
                         CASE TRIM(CAST(column05 AS VARCHAR))
                             WHEN '01' THEN 'MICRO EMPRESA'
                             WHEN '03' THEN 'EMPRESA DE PEQUENO PORTE'
                             WHEN '05' THEN 'DEMAIS'
                             ELSE 'NÃO INFORMADO'
                         END AS porte_descricao,
-                        
                         NULLIF(TRIM(CAST(column06 AS VARCHAR)), '') AS ente_federativo,
-                        
                         CASE 
                             WHEN CAST(REPLACE(CAST(column04 AS VARCHAR), ',', '.') AS DOUBLE) = 0 THEN 'SEM CAPITAL'
                             WHEN CAST(REPLACE(CAST(column04 AS VARCHAR), ',', '.') AS DOUBLE) <= 1000 THEN 'ATÉ 1K'
@@ -111,9 +113,7 @@ def main():
                             WHEN CAST(REPLACE(CAST(column04 AS VARCHAR), ',', '.') AS DOUBLE) <= 1000000 THEN '100K A 1M'
                             ELSE 'ACIMA DE 1M'
                         END AS capital_social_faixa,
-                        
                         regexp_matches(UPPER(TRIM(regexp_replace(column01, '', '', 'g'))), '\\d{{11}}$') AS is_mei,
-                        
                         CASE SUBSTR(LPAD(CAST(column02 AS VARCHAR), 4, '0'), 1, 1)
                             WHEN '1' THEN 'ADMINISTRAÇÃO PÚBLICA'
                             WHEN '2' THEN 'ENTIDADES EMPRESARIAIS'
@@ -122,11 +122,8 @@ def main():
                             WHEN '5' THEN 'ORGANIZAÇÕES INTERNACIONAIS'
                             ELSE 'OUTROS'
                         END AS natureza_juridica_grupo,
-                        
                         CASE WHEN NULLIF(TRIM(CAST(column06 AS VARCHAR)), '') IS NOT NULL THEN true ELSE false END AS ente_federativo_presente,
-                        
                         NOW() AS data_processamento
-
                     FROM read_csv_auto(
                         '{extracted_path}', 
                         header=false, 
@@ -143,7 +140,7 @@ def main():
                     logging.info(f" Arquivo {csv_name} carregado!")
 
             except Exception as e:
-                logging.error(f"  Erro ao processar {zip_path}: {e}")
+                logging.error(f" Erro ao processar {zip_path}: {e}")
                 raise e 
             finally:
                 if 'extracted_path' in locals() and os.path.exists(extracted_path):
